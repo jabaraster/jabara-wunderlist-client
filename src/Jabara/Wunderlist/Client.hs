@@ -3,9 +3,10 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
 module Jabara.Wunderlist.Client (
-    getTasks
+    getLists
+  , getListUsers
+  , getTasks
   , getTasksAsJson
-  , getLists
   , module Jabara.Wunderlist.Client.Types
 ) where
 
@@ -24,6 +25,14 @@ access cre req = do
                       req
     pure $ fromJust $ getResponseBody res
 
+-- | 本当はリストを限定して、そのリストにアクセスできるユーザを
+-- 取得したい. それにはクエリパラメータ list_id を付ければいい・・・
+-- とドキュメントにはあるのだが、実際に操作すると500が返ってくる・・・
+getListUsers :: Credential -> IO [ListUser]
+getListUsers cre =
+    parseUrl "https://a.wunderlist.com/api/v1/users"
+      >>= access cre
+
 getLists :: Credential -> IO [List]
 getLists cre = access cre "https://a.wunderlist.com/api/v1/lists"
 
@@ -31,9 +40,9 @@ taskUrlBase :: String
 taskUrlBase = "https://a.wunderlist.com/api/v1/tasks?list_id="
 
 getTasks :: Credential -> WunderlistId -> IO [Task]
-getTasks cre wid = do
-    req <- parseUrl (taskUrlBase ++ (show wid))
-    access cre req
+getTasks cre wid =
+    parseUrl (taskUrlBase ++ (show wid))
+      >>= access cre
 
 getTasksAsJson :: Credential -> WunderlistId -> IO [Value]
 getTasksAsJson cre wid = do

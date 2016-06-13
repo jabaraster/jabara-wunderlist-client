@@ -19,7 +19,7 @@ module Jabara.Wunderlist.Client.Types (
   , ListUser(..), listUser_id, listUser_name, listUser_email
                 , listUser_created_at
 
-
+  , fromWunderlistDay
 ) where
 
 import Control.Lens.TH (makeLenses)
@@ -28,7 +28,8 @@ import Data.Aeson.TH (deriveJSON, defaultOptions, fieldLabelModifier)
 import Data.ByteString (ByteString)
 import Data.Text (Text, pack, unpack)
 import Data.Time (Day(..))
-import Data.Time.Format (formatTime, parseTimeM, defaultTimeLocale)
+import Data.Time.Format (ParseTime(..), FormatTime(..)
+                        , formatTime, parseTimeM, defaultTimeLocale)
 import GHC.Base (mzero)
 import GHC.Generics (Generic)
 import Jabara.Util (omittedFirstCharLower)
@@ -45,11 +46,28 @@ data Credential = Credential {
 } deriving (Show, Read, Eq, Generic)
 makeLenses ''Credential
 
-instance FromJSON Day where
-    parseJSON (String t) = parseTimeM False defaultTimeLocale "%Y-%m-%d" (unpack t)
+newtype WunderlistDay = WunderlistDay {
+    wunderlistDayValue :: Day
+} deriving (Show, Read, Eq)
+
+instance FromJSON WunderlistDay where
+    parseJSON (String t) = fromWunderlistDay t
     parseJSON  _         = mzero
-instance ToJSON Day where
-    toJSON d = String $ pack $ formatTime defaultTimeLocale "%Y-%m-%d" d
+instance ToJSON WunderlistDay where
+    toJSON d = String $ pack $ formatTime defaultTimeLocale "%Y-%m-%d" $ wunderlistDayValue d
+instance ParseTime WunderlistDay where
+    buildTime locale ss  = let d = buildTime locale ss
+                           in  WunderlistDay d
+instance FormatTime WunderlistDay where
+    formatCharacter c =
+        let mF = formatCharacter c
+          in
+            case mF of
+              Nothing -> Nothing
+              Just  f -> Just (\locale mb d -> f locale mb $ wunderlistDayValue d)
+
+fromWunderlistDay :: (Monad m) => Text -> m WunderlistDay
+fromWunderlistDay t = parseTimeM False defaultTimeLocale "%Y-%m-%d" (unpack t)
 
 -- | REST APIの結果の型群.
 data ListUser = ListUser {
@@ -69,7 +87,7 @@ data Task = Task {
   , _task_assigner_id   :: Maybe WunderlistId
   , _task_created_at    :: Text
   , _task_created_by_id :: WunderlistId
-  , _task_due_date      :: Maybe Day
+  , _task_due_date      :: Maybe WunderlistDay
   , _task_list_id       :: WunderlistId
   , _task_revision      :: Revision
   , _task_starred       :: Bool
