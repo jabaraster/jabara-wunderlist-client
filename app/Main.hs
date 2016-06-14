@@ -7,8 +7,6 @@ module Main where
 import Jabara.Wunderlist.Client
 
 import           Control.Lens
-import           Data.Aeson
-import           Data.Aeson.Lens
 import qualified Data.ByteString.Char8 as B
 import qualified Data.Map as M (Map, lookup)
 import           Data.Maybe (isJust, fromMaybe, catMaybes)
@@ -18,33 +16,44 @@ import           Data.Time.Format (formatTime, defaultTimeLocale)
 import           Jabara.Util (listToMap)
 import           System.Environment
 
+type ListUserDb = M.Map UserId ListUser
+type NoteDb     = M.Map TaskId Note
+
 data CsvItemValueSetting =
-    Title
-    | Description
-    | GoogleDate {
-        _googleDateKey :: T.Text
-    }
-    | FixedText {
-        _fixedTextValue :: T.Text
-    }
+      Title       (ListUserDb -> Task -> T.Text)
+    | GoogleDate  (Task -> T.Text)
+    | FixedText   T.Text
+    | Description (NoteDb -> Task -> T.Text)
 makeLenses ''CsvItemValueSetting
 
 data CsvItemSetting = CsvItemSetting {
-    _csvItemSettingLabel :: T.Text
-  , _csvItemValueSetting :: CsvItemValueSetting
+    csvItemSettingLabel :: T.Text
+  , csvItemValueSetting :: CsvItemValueSetting
 }
-makeLenses ''CsvItemSetting
 
 type CsvItemSettings = [CsvItemSetting]
 
 defaultSettings :: CsvItemSettings
 defaultSettings = [
-                    CsvItemSetting "Subject"       $ Title
-                  , CsvItemSetting "Start Date"    $ GoogleDate    "due_date"
-                  , CsvItemSetting "All Day Event" $ FixedText     "True"
-                  , CsvItemSetting "Private"       $ FixedText     "False"
-                  , CsvItemSetting "Description"   $ Description
-                  ]
+      CsvItemSetting "Subject"       $ Title (\users task ->
+          let title            = task^.task_title
+              assigneeUserName = getAssigneeUserName users task
+          in encDC $ T.intercalate " - " $ catMaybes [Just title, assigneeUserName]
+          )
+    , CsvItemSetting "Start Date"    $ GoogleDate (\task ->
+          fromMaybe "" $ do
+              d <- task^.task_due_date
+              pure $ T.pack $ formatTime defaultTimeLocale "%d/%m/%Y" d
+          )
+    , CsvItemSetting "All Day Event" $ FixedText "True"
+    , CsvItemSetting "Private"       $ FixedText "False"
+    , CsvItemSetting "Description"   $ Description (\notes task ->
+          fromMaybe "" $ do
+              tid  <- pure $ task^.task_id
+              note <- M.lookup tid notes
+              pure $ note^.note_content
+          )
+    ]
 
 sep :: T.Text
 sep = ","
@@ -61,51 +70,33 @@ credentialFromEnv = do
 listIdFromEnv :: IO ListId
 listIdFromEnv = getEnv "LIST_ID" >>= pure . read
 
-hasValue :: T.Text -> Value -> Bool
-hasValue prop val = isJust $ ((Just val) ^. key prop ::Maybe Value)
-
-buildCsv :: M.Map UserId ListUser -> M.Map TaskId Note -> CsvItemSettings -> [Value] -> T.Text
-buildCsv users notes settings values = T.unlines (header:map valueToLine values)
+buildCsv :: ListUserDb -> NoteDb -> CsvItemSettings -> [Task] -> T.Text
+buildCsv users notes settings values = T.unlines (header:map taskToLine values)
   where
     header :: T.Text
-    header = T.intercalate sep $ map _csvItemSettingLabel settings
+    header = T.intercalate sep $ map csvItemSettingLabel settings
 
-    valueToLine :: Value -> T.Text
-    valueToLine value = T.intercalate sep $
-        map (textValue value) settings
+    taskToLine :: Task -> T.Text
+    taskToLine task = T.intercalate sep $ map (textValue task) settings
 
-    textValue :: Value -> CsvItemSetting -> T.Text
-    textValue val@(Object _) (CsvItemSetting _ Title) =
-        let title    = (Just val)^.key "title"
-            userName = getUserName val
-        in  T.intercalate " - " $ catMaybes [title, userName]
-    textValue val@(Object _) (CsvItemSetting _ Description) =
-        encDC $ T.intercalate "\n" $ catMaybes [getUserName val, getDescription val]
-    textValue val@(Object _) (CsvItemSetting _ (GoogleDate  prop)) = fromMaybe "" $ do
-        t <- (Just val) ^. key prop
-        d <- fromWunderlistDay t
-        pure $ T.pack $ formatTime defaultTimeLocale "%d/%m/%Y" d
-    textValue _ (CsvItemSetting _ (FixedText t)) = t
-    textValue _ _                                = error "error."
+    textValue :: Task -> CsvItemSetting -> T.Text
+    textValue task (CsvItemSetting _ (Title       f)) = f users task
+    textValue task (CsvItemSetting _ (GoogleDate  f)) = f task
+    textValue _    (CsvItemSetting _ (FixedText   t)) = t
+    textValue task (CsvItemSetting _ (Description f)) = f notes task
 
-    getUserName :: Value -> Maybe T.Text
-    getUserName task = do
-        uid  <- (Just task) ^. key "assignee_id"
-        user <- M.lookup uid users
-        pure $ user^.listUser_name
-
-    getDescription :: Value -> Maybe T.Text
-    getDescription task = do
-        tid  <- (Just task) ^. key "id"
-        note <- M.lookup tid notes
-        pure $ note^.note_content
+getAssigneeUserName :: ListUserDb -> Task -> Maybe T.Text
+getAssigneeUserName users task = do
+    uid <- task^.task_assignee_id
+    user <- M.lookup uid users
+    pure $ user^.listUser_name
 
 main :: IO ()
 main = do
     listId <- listIdFromEnv
     cre    <- credentialFromEnv
-    tasks  <- getTasksAsJson cre listId
-                 >>= pure . filter (hasValue "due_date")
+    tasks  <- getTasks cre listId
+                 >>= pure . filter (isJust . _task_due_date)
     users  <- getListUsers cre >>= pure . listToMap _listUser_id
     notes  <- getListNotes cre listId >>= pure . listToMap _note_task_id
     T.putStrLn $ buildCsv users notes defaultSettings tasks
