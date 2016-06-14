@@ -6,6 +6,7 @@ module Jabara.Wunderlist.Client (
     getLists
   , getListUsers
   , getTasks
+  , getListNotes
   , getTasksAsJson
   , module Jabara.Wunderlist.Client.Types
 ) where
@@ -29,9 +30,7 @@ access cre req = do
 -- 取得したい. それにはクエリパラメータ list_id を付ければいい・・・
 -- とドキュメントにはあるのだが、実際に操作すると500が返ってくる・・・
 getListUsers :: Credential -> IO [ListUser]
-getListUsers cre =
-    parseUrl "https://a.wunderlist.com/api/v1/users"
-      >>= access cre
+getListUsers cre = access cre "https://a.wunderlist.com/api/v1/users"
 
 getLists :: Credential -> IO [List]
 getLists cre = access cre "https://a.wunderlist.com/api/v1/lists"
@@ -39,15 +38,19 @@ getLists cre = access cre "https://a.wunderlist.com/api/v1/lists"
 taskUrlBase :: String
 taskUrlBase = "https://a.wunderlist.com/api/v1/tasks?list_id="
 
-getTasks :: Credential -> WunderlistId -> IO [Task]
-getTasks cre wid =
-    parseUrl (taskUrlBase ++ (show wid))
+getTasks :: Credential -> ListId -> IO [Task]
+getTasks cre lid =
+    parseUrl (taskUrlBase ++ (show lid))
       >>= access cre
 
-getTasksAsJson :: Credential -> WunderlistId -> IO [Value]
-getTasksAsJson cre wid = do
-    req <- parseUrl (taskUrlBase ++ (show wid))
+getTasksAsJson :: Credential -> ListId -> IO [Value]
+getTasksAsJson cre lid = do
+    req <- parseUrl (taskUrlBase ++ (show lid))
     val::Value <- access cre req
     case val of
         Array ary -> pure $ toList ary
         _         -> error $ "error '" ++ (show val) ++ "'"
+getListNotes :: Credential -> ListId -> IO [Note]
+getListNotes cre lid =
+    parseUrl ("https://a.wunderlist.com/api/v1/notes?list_id=" ++ (show lid))
+      >>= access cre

@@ -5,8 +5,13 @@ module Jabara.Wunderlist.Client.Types (
     AccessToken
   , ClientId
 
-  , WunderlistId
+  , UserId
+  , ListId
+  , TaskId
+  , NoteId
   , Revision
+
+  , fromWunderlistDay
 
   , Credential(..), credentialAccessToken, credentialClientId
 
@@ -19,7 +24,9 @@ module Jabara.Wunderlist.Client.Types (
   , ListUser(..), listUser_id, listUser_name, listUser_email
                 , listUser_created_at
 
-  , fromWunderlistDay
+  , Note(..), note_id, note_task_id, note_content
+            , note_created_at, note_updated_at
+            , note_revision
 ) where
 
 import Control.Lens.TH (makeLenses)
@@ -37,8 +44,11 @@ import Jabara.Util (omittedFirstCharLower)
 type AccessToken = ByteString
 type ClientId    = ByteString
 
-type WunderlistId = Integer
-type Revision     = Int
+type UserId   = Integer
+type ListId   = Integer
+type TaskId   = Integer
+type NoteId   = Integer
+type Revision = Int
 
 data Credential = Credential {
     _credentialClientId    :: ClientId
@@ -71,7 +81,7 @@ fromWunderlistDay t = parseTimeM False defaultTimeLocale "%Y-%m-%d" (unpack t)
 
 -- | REST APIの結果の型群.
 data ListUser = ListUser {
-    _listUser_id         :: WunderlistId
+    _listUser_id         :: UserId
   , _listUser_name       :: Text
   , _listUser_email      :: Text
   , _listUser_created_at :: Text
@@ -82,13 +92,13 @@ $(deriveJSON defaultOptions {
 } ''ListUser)
 
 data Task = Task {
-    _task_id            :: WunderlistId
-  , _task_assignee_id   :: Maybe WunderlistId
-  , _task_assigner_id   :: Maybe WunderlistId
+    _task_id            :: TaskId
+  , _task_assignee_id   :: Maybe UserId
+  , _task_assigner_id   :: Maybe UserId
   , _task_created_at    :: Text
-  , _task_created_by_id :: WunderlistId
+  , _task_created_by_id :: UserId
   , _task_due_date      :: Maybe WunderlistDay
-  , _task_list_id       :: WunderlistId
+  , _task_list_id       :: ListId
   , _task_revision      :: Revision
   , _task_starred       :: Bool
   , _task_title         :: Text
@@ -99,7 +109,7 @@ $(deriveJSON defaultOptions {
 } ''Task)
 
 data List = List {
-    _list_id         :: WunderlistId
+    _list_id         :: ListId
   , _list_created_at :: Text
   , _list_title      :: Text
   , _list_list_type  :: Text
@@ -110,3 +120,17 @@ makeLenses ''List
 $(deriveJSON defaultOptions {
     fieldLabelModifier = omittedFirstCharLower "_list_"
 } ''List)
+
+data Note = Note {
+    _note_id         :: NoteId
+  , _note_task_id    :: TaskId
+  , _note_content    :: Text
+  , _note_created_at :: Maybe Text
+  , _note_updated_at :: Maybe Text
+  , _note_revision   :: Revision
+} deriving (Show, Read, Eq, Generic)
+makeLenses ''Note
+$(deriveJSON defaultOptions {
+    fieldLabelModifier = omittedFirstCharLower "_note_"
+} ''Note)
+
