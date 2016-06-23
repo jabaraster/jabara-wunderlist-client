@@ -7,14 +7,17 @@ module Main where
 import Jabara.Wunderlist.Client
 
 import           Control.Lens
+import           Data.Aeson (Value(Object, String), Object, toJSON, encode)
 import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy.Char8 as LB
+import qualified Data.HashMap.Strict as HM (insert)
 import qualified Data.Map as M (Map, lookup)
 import           Data.Maybe (isJust, fromMaybe, catMaybes)
 import qualified Data.Text    as T
 import qualified Data.Text.IO as T
 import           Data.Time.Format (formatTime, defaultTimeLocale)
 import           Jabara.Util (listToMap)
-import           System.Environment
+import           System.Environment (getEnv)
 
 type ListUserDb = M.Map UserId ListUser
 type NoteDb     = M.Map TaskId Note
@@ -51,7 +54,7 @@ defaultSettings = [
           fromMaybe "" $ do
               tid  <- pure $ task^.task_id
               note <- M.lookup tid notes
-              pure $ note^.note_content
+              pure $ encDC $ note^.note_content
           )
     ]
 
@@ -91,6 +94,21 @@ getAssigneeUserName users task = do
     user <- M.lookup uid users
     pure $ user^.listUser_name
 
+rebuildTasks :: ListUserDb -> NoteDb -> [Task] -> [Value]
+rebuildTasks users notes = map core
+  where
+    core :: Task -> Value
+    core task = let n =  T.intercalate " - " $ catMaybes [Just (task^.task_title), getAssigneeUserName users task]
+                    t' = task&task_title .~ n
+                    desc = fromMaybe "" $ do
+                               tid  <- pure $ task^.task_id
+                               note <- M.lookup tid notes
+                               pure $ note^.note_content
+                    json = toJSON t'
+                in  case json of
+                    Object map -> Object $ HM.insert "description" (String desc) map
+                    _          -> error "unexpected type."
+
 main :: IO ()
 main = do
     listId <- listIdFromEnv
@@ -99,4 +117,5 @@ main = do
                  >>= pure . filter (isJust . _task_due_date)
     users  <- getListUsers cre >>= pure . listToMap _listUser_id
     notes  <- getListNotes cre listId >>= pure . listToMap _note_task_id
-    T.putStrLn $ buildCsv users notes defaultSettings tasks
+    -- T.putStrLn $ buildCsv users notes defaultSettings tasks
+    mapM_ LB.putStrLn $ map encode $ rebuildTasks users notes tasks
