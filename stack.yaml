@@ -6,5 +6,5 @@ packages:
     git: https://github.com/jabaraster/jabara-util
     commit: f974a3be2544b1e54c8751476ed7d997b82b96c6
 extra-deps:
-- aeson-lens-0.5.0.0
-resolver: lts-5.13
+- http-querystring-1.0
+resolver: lts-6.3
